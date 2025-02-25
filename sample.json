@@ -1,0 +1,18 @@
+{
+    "videos":[
+       {
+          "video_path":"/path/to/video1.mp4",
+          "thumbnail":"/path/to/thumbnail1.jpg",
+          "title":"動画タイトル1",
+          "description":"ここに動画1の説明が入ります。\n複数行に渡って記述できます。",
+          "post_time":"2025-02-28 15:30"
+       },
+       {
+          "video_path":"/path/to/video2.mp4",
+          "thumbnail":"/path/to/thumbnail2.jpg",
+          "title":"動画タイトル2",
+          "description":"ここに動画2の説明が入ります。\n複数行の説明を設定可能です。",
+          "post_time":"2025-03-01 10:00"
+       }
+    ]
+}
