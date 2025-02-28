@@ -20,7 +20,16 @@ r"""
 import os
 import json
 import argparse
+import re
 from datetime import datetime, timedelta
+
+def directory_sort_key(name):
+    m = re.match(r'^(\d+)_', name)
+    if m:
+        # 先頭が「数値_」の場合は、(0, 数値, name) を返すことで数値を優先しつつ名前順も保持
+        return (0, int(m.group(1)), name)
+    # 数値がない場合は、(1, name) として通常の文字列順にソート
+    return (1, name)
 
 def parse_description_file(desc_path):
     """
@@ -117,8 +126,8 @@ def main():
     processed_in_group = 0  # 現在のグループで処理した件数
     group_limit = args.group_count  # 同一日付に割り当てる件数
 
-    # 指定したディレクトリ内のサブディレクトリを処理（隠しディレクトリは除外）
-    for item in sorted(os.listdir(args.base_dir)):
+    # 指定したディレクトリ内のサブディレクトリを、ソートキー関数を使ってソートして処理（隠しディレクトリは除外）
+    for item in sorted(os.listdir(args.base_dir), key=directory_sort_key):
         if args.limit and count >= args.limit:
             break
         item_path = os.path.join(args.base_dir, item)

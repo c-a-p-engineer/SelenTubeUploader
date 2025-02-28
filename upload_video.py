@@ -19,9 +19,18 @@ SelenTubeUploader - YouTube動画アップロード自動化スクリプト
 ※ Chrome のユーザープロファイル設定値（--user-data-dir と --profile-directory）は chrome://version で確認できます。
 """
 
+import os
+import time
+import sys
+
+if os.name == 'nt':
+    import msvcrt
+else:
+    import select
+
 import argparse
 import json
-import time
+import select
 from datetime import datetime
 import logging
 
@@ -34,6 +43,30 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import TimeoutException
+
+def beep_until_key(interval=2):
+    """
+    キー入力があるまで、指定した間隔でベル音を鳴らし続ける関数。
+    
+    Args:
+        interval (int, optional): ベル音を鳴らす間隔（秒）。デフォルトは2秒。
+    """
+    print(f"キー入力があるまでベル音を{interval}秒ごとに鳴らします。")
+    while True:
+        print("\a", end='', flush=True)  # ASCIIベル文字の出力
+        time.sleep(interval)
+        if os.name == 'nt':
+            # Windows: msvcrtを利用して非ブロッキングにキー入力をチェック
+            if msvcrt.kbhit():
+                msvcrt.getch()  # キー入力を読み捨て
+                break
+        else:
+            # Linux/macOS: selectを利用してstdinの入力を非ブロッキングで監視
+            dr, _, _ = select.select([sys.stdin], [], [], 0)
+            if dr:
+                sys.stdin.readline()  # 入力があれば読み捨て
+                break
 
 def get_chrome_options(user_data_dir=None, profile_directory=None):
     """
@@ -78,9 +111,20 @@ def set_contenteditable_text(driver, element, text):
     """
     script = """
     if (window.trustedTypes && window.trustedTypes.createPolicy) {
-        var policy = window.trustedTypes.createPolicy('default', {
-            createHTML: function(input) { return input; }
-        });
+        // グローバル変数にキャッシュしたポリシーを利用
+        var policy = window.__myTrustedPolicy;
+        if (!policy) {
+            try {
+                policy = window.trustedTypes.createPolicy('default', {
+                    createHTML: function(input) { return input; }
+                });
+                window.__myTrustedPolicy = policy;
+            } catch (e) {
+                // ポリシー作成時にエラーが発生した場合は、シンプルなフォールバックを用いる
+                console.error('Error creating TrustedTypes policy:', e);
+                policy = { createHTML: function(input) { return input; } };
+            }
+        }
         arguments[0].innerHTML = policy.createHTML(arguments[1]);
     } else {
         arguments[0].innerHTML = arguments[1];
@@ -105,12 +149,23 @@ def upload_video(driver, video_config):
     """
     wait = WebDriverWait(driver, 60)
     
-    logging.info("YouTube Studioにアクセス中...")
-    driver.get("https://studio.youtube.com")
-    
-    logging.info("「作成」ボタンをクリック中...")
-    create_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//ytcp-button[contains(., '作成')]")))
-    create_btn.click()
+    logging.info("「作成」ボタンの存在を確認中...")
+
+    try:
+        # 短いタイムアウトで作成ボタンのクリック可能状態を待つ
+        create_btn = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.XPATH, "//ytcp-button[contains(., '作成')]"))
+        )
+        logging.info("作成ボタンが存在するため、画面遷移は行いません。")
+        create_btn.click()
+    except TimeoutException:
+        logging.info("作成ボタンが見つからなかったため、YouTube Studioにアクセスします。")
+        driver.get("https://studio.youtube.com")
+        # 再度、作成ボタンがクリック可能になるのを待つ
+        create_btn = wait.until(
+            EC.element_to_be_clickable((By.XPATH, "//ytcp-button[contains(., '作成')]"))
+        )
+        create_btn.click()
     
     logging.info("「動画をアップロード」オプションをクリック中...")
     upload_option = wait.until(EC.element_to_be_clickable((By.XPATH, "//tp-yt-paper-item[contains(., '動画をアップロード')]")))
@@ -149,13 +204,14 @@ def upload_video(driver, video_config):
     not_for_kids = wait.until(EC.element_to_be_clickable(
         (By.XPATH, "//div[@id='radioLabel' and contains(., 'いいえ、子ども向けではありません')]")
     ))
+    time.sleep(3)
     not_for_kids.click()
     
     for i in range(3):
         logging.info(f"次へボタン（ステップ {i+1}）をクリック中...")
         next_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//ytcp-button[@id='next-button']")))
         next_btn.click()
-        time.sleep(1)
+        time.sleep(3)
     
     logging.info("「スケジュール」ボタンをクリック中...")
     schedule_btn = wait.until(EC.element_to_be_clickable((By.ID, "second-container-expand-button")))
@@ -179,7 +235,7 @@ def upload_video(driver, video_config):
     # ここでカレンダーが展開されるまで少し待機（必要に応じて調整）
     time.sleep(1)
     logging.info("日付入力フィールドを操作中...")
-    date_input = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input[aria-labelledby='paper-input-label-2']")))
+    date_input = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "ytcp-date-picker input")))
     date_input.clear()
     date_str = scheduled_dt.strftime("%Y/%m/%d")
     logging.info(f"日付を入力: {date_str}")
@@ -200,7 +256,7 @@ def upload_video(driver, video_config):
     publish_btn.click()
     logging.debug("公開/スケジュール設定完了ボタンクリック完了")
 
-    time.sleep(3)
+    time.sleep(2)
 
     logging.info("クローズボタンをクリック中...")
     close_button = WebDriverWait(driver, 15).until(
@@ -264,12 +320,11 @@ def main():
             logging.info(f"\n--- 動画{idx}のアップロード開始 ---")
             print(f"\n--- 動画{idx}のアップロード開始 ---")
             upload_video(driver, video)
-            if idx < len(config["videos"]):
-                # 大きなファイルの場合、アップロード完了まで時間がかかるため待機
-                time.sleep(60)
+            time.sleep(3)
     except Exception as e:
         logging.error(f"アップロード中にエラーが発生しました: {e}")
         print(f"アップロード中にエラーが発生しました: {e}")
+        beep_until_key(2)
     finally:
         input("終了するにはEnterキーを押してください...")
         driver.quit()
