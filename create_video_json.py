@@ -58,11 +58,13 @@ def process_directory(directory_path, current_post_time):
     ディレクトリ内の必要ファイル（thumbnail.jpg, *.mp4, description.txt）から
     動画情報の辞書を生成します。
     """
-    thumb_path = os.path.join(directory_path, "thumbnail.jpg")
-    if not os.path.exists(thumb_path):
-        raise FileNotFoundError(f"thumbnail.jpg が {directory_path} に見つかりません")
-    thumb_path = os.path.abspath(thumb_path)
-    
+    thumb_path = ""
+    for ext in ["jpg", "png"]:
+        thumb_path = os.path.join(directory_path, f"thumbnail.{ext}")
+        if os.path.exists(thumb_path):
+            os.path.abspath(thumb_path)
+            break
+
     video_path = find_mp4_file(directory_path)
     if video_path is None:
         raise FileNotFoundError(f"拡張子 .mp4 の動画ファイルが {directory_path} に見つかりません")
